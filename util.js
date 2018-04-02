@@ -1,3 +1,4 @@
+/*
 const fun1 = function () {
     console.log("hello world");
 };
@@ -11,4 +12,4 @@ const fun2 = function () {
 module.exports = {
     fun1,
     fun2
-};
+};*/
