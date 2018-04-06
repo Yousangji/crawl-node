@@ -1,30 +1,13 @@
-const {getICOLinks } = require("./teamInfoUtil");
+const {getICOLinks} = require("./crawl-target-icobench");
+let i = 0;
+const limit =3;
 
-//const phantom = require('phantom');
-
-getICOLinks();
-
-
-/*
-request(url, function(error,response,html){
-    if (!error) {
-        const $ = cheerio.load(html);
-
-        var title,interest,category;
-        const json = {title, interest, category};
-        const $rows= $('#ended_ico');
-           $rows.filter(function () {
-                const data = $(this);
-                const title = data.find('.ico-row > div.ico-main-info > h3 > a').text(),
-                interest = data.find('.interest > div').text();
-                category  = data.children('.categ_type').text();
-
-                json.title = title;
-                json.interest = interest;
-                json.category = category;
-
-                console.log(json);
-            });
-
+const icobenchCrawl = setInterval(function () {
+    i++;
+    if(i > limit){
+        console.log("종료");
+        clearInterval(icobenchCrawl)
     }
-});*/
+    getICOLinks(i);
+}, 5000);
+
