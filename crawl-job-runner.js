@@ -4,25 +4,33 @@ const fs = require("fs");
 const {crawlLinks, crawlData} = require("./crawl-data-extractor");
 const writeFile = Promise.promisify(fs.writeFile);
 const readFile = Promise.promisify(fs.readFile);
-const crawlDataProm = Promise.promisify(crawlData);
-
 const root = __dirname;
-//
-// crawlURL("https://icobench.com/icos?page=4")
-//     .then((result) => {
-//         // decide what to do with
-//         // 1- the new links (save it in database)
-//         // 2- original link (update done, last crawl date)
-//         console.log(result);
-//     })
-//     .catch(error => {
-//         console.log(error)
-//         // decide what to do with the error and original link (update trial++, error message,done:false)
-//     });
-//
 
-// crawlLinks("https://icobench.com/icos?page=4", "/ico/")
-//     .then(result => console.log(result));
+//---------database
+const mongoose = require('mongoose');
+const crawldb = mongoose.createConnection('mongodb://localhost/icocrawl');
+const Schema = mongoose.Schema;
+const link = new Schema({
+    targetUrl: String,
+    baseUrl: String,
+    created: Date,
+    updated: Date,
+    duedate: Date,
+    trial: Number,
+    done: Boolean
+});
+const data = new Schema({
+    teamName: String,
+    whitePaperAddr: String,
+    tokenInfo: Schema.Types.Mixed,
+    icoInfo: Schema.Types.Mixed,
+    socialLinks: Schema.Types.Mixed,
+    teamMembersInfo: Schema.Types.Mixed,
+    targetUrl: String
+})
+const linkModel = crawldb.model('link', link);
+const dataModel = crawldb.model('ico-data', data);
+
 
 /*
 request every chart page and get all links return as a array
@@ -44,28 +52,26 @@ const crawlAllLinks = () => {
 //
 
 
-//task 1. get links from file,request with links , crawl and save data as a file one by one
-//
-const crawlAllData = () => {
-    //1. get links from file
-    return readFile(root + "/data/links.json", "utf8")
-        .then(links => {
-            //2. promise crawlData
-            return Promise.each(JSON.parse(links), link => {
-                return crawlData(`https://icobench.com${link}`)
-                    .then(data => {
-                        writeFile(`${root}/data${link}.json`, JSON.stringify(data, null, 2));
-                    })
-            }, {concurrency: 1})
-                .then(() => console.log("done"))
-        })
+/**
+ * request with links , crawl and save data as a file one by one
+ * @param links
+ */
+const crawlAllData = links => Promise.each(links, link => crawlData(`https://icobench.com${link}`)
+    .then(data => {
+        writeFile(`${root}/data${link}.json`, JSON.stringify(data, null, 2));
+    }), {concurrency: 1});
 
-};
-
-const upsertLink =
+crawlAllData().then(() => console.log("done"));
 
 
+// /**
+//  * crawlAllData with links from Json File
+//  */
+// readFile(root + "/data/links.json", "utf8")
+//     .then(result => JSON.parse(result))
+//     .then(res => {
+//         crawlAllData(res);
+//     });
 
-crawlAllData();
 
 

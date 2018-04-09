@@ -22,7 +22,8 @@ const crawlData = targetUrl => axios
         }
 
         //-------------------get WhitePaper Address
-        const whitePaperAddr = $('.tabs').find("[href$='.pdf']").attr('href');
+        const whitePaperAddr = $('.tabs > a:nth-child(6)').attr('href');
+
 
         //-------------------get Team social link
         const socialLinks = [];
