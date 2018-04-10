@@ -13,6 +13,8 @@
     "axios": "^0.18.0",
     "bluebird": "^3.5.1",
     "cheerio": "^1.0.0-rc.2",
+    "download": "^6.2.5",
+    "file-type": "^7.6.0",
     "knex": "^0.14.4",
     "lodash.union": "^4.6.0",
     "mongodb": "^3.0.5",

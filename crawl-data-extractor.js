@@ -21,8 +21,10 @@ const crawlData = targetUrl => axios
             preICO = true;
         }
 
+
+
         //-------------------get WhitePaper Address
-        const whitePaperAddr = $('.tabs > a:nth-child(6)').attr('href');
+        const whitePaperAddr = $('.tabs > a:nth-child(6)').prop('href');
 
 
         //-------------------get Team social link
