@@ -27,18 +27,23 @@ const link = new Schema({
 const data = new Schema({
     teamName: String,
     detailInfo: Schema.Types.Mixed,//new has subtitle, subscribe, tag
+    aggregateRatings: Schema.Types.Mixed, //new aggregateRatings{sum,detail}
     whitePaperAddr: String,
-    tokenInfo: Schema.Types.Mixed,
+    financialInfo: Schema.Types.Mixed,
     icoInfo: Schema.Types.Mixed,
     socialLinks: Schema.Types.Mixed,
     teamMembersInfo: Schema.Types.Mixed,
     ratings: Schema.Types.Mixed,// new has rated person name,
-    milestone:Schema.Types.Mixed,// new has date content
+    milestone: Schema.Types.Mixed,// new has date content
     targetUrl: String,
     whitePaperSave: Schema.Types.Mixed
 }, {timestamps: true});
 const linkModel = mongoose.model('link', link);
 const dataModel = mongoose.model('ico-metadata', data);
+
+
+let total = 2735;
+let count = 0;
 
 /*
 request every chart page and get all links return as a array
@@ -80,42 +85,48 @@ const saveCrawledLinks = () => crawlAllLinks()
  * request with links , crawl data, save data in mongo then, if succeed update link done = true if not update link error.log
  * @param links
  */
-const crawlAllData = links => Promise.each(links, link => crawlData(link)
-    .then(data => {
-        //------------------------ save crawled Data
-        dataModel.findOneAndUpdate({"targetUrl": link},
-            data, {upsert: true})
-            .then(() => {
-                    //------------------------update link done if saving data succeed
-                    linkModel.findOneAndUpdate({"targetUrl": link}, {
-                        $set: {"done": true},
-                        $inc: {"trial": 1}
-                    }, function (err, res) {
-                        //console.log(link, "update succeeded link in links db")
-                    })
-                }
-            )
+const crawlAllData = links => {
+    total = links.length;
+    return Promise.each(links, link => crawlData(link)
+        .then(data => {
+            count++;
+            console.log(`${link} is started! ${count}/${total}`);
+            //------------------------ save crawled Data
+            dataModel.findOneAndUpdate({"targetUrl": link},
+                data, {upsert: true})
+                .then(() => {
+                        //------------------------update link done if saving data succeed
+                        linkModel.findOneAndUpdate({"targetUrl": link}, {
+                            $set: {"done": true},
+                            $inc: {"trial": 1}
+                        }, function (err, res) {
+                            //console.log(link, "update succeeded link in links db")
+                        })
+                    }
+                )
 
-    }).catch(error => {
-        console.log(`[error: ${error}]  while crawling data, link : ${link}`);
+        }).catch(error => {
+            console.log(`[error: ${error}]  while crawling data, link : ${link}`);
 
-        //--------------------update link data(trial, updated, error) in db,  if crawling data failed
-        linkModel.findOneAndUpdate({"url": link}, {
-            $set: {"error": error},
-            $inc: {"trial": 1}
-        }, function (err, res) {
-            if (err) throw console.log(`[error : ${err}] update crawling failed link `);
-            console.log(`update crawling failed link result : ${res}`)
-        })
-    }), {concurrency: 1})
-    .then(() => console.log("done"));
+            //--------------------update link data(trial, updated, error) in db,  if crawling data failed
+            linkModel.findOneAndUpdate({"url": link}, {
+                $set: {"error": error},
+                $inc: {"trial": 1}
+            }, function (err, res) {
+                if (err) throw console.log(`[error : ${err}] update crawling failed link `);
+                console.log(`update crawling failed link result : ${res}`)
+            })
+        }), {concurrency: 1})
+};
 
 //get links undone from database and then crawl all data
 const crawlAllDataWithUndoneLinks = () => linkModel
-    .find({'done': false})
+    .find({ratings:{$exists:false}})
     .select({"targetUrl": 1, "_id": 0})
     .then(results => results.map(result => result['targetUrl']))
-    .then(targetUrls => crawlAllData(targetUrls));
+    .then(targetUrls => crawlAllData(targetUrls))
+    .then(() => {console.log("done"); mongoose.disconnect()});
+
 
 
 const resolveWhitePaperURL = paperUrl => {
@@ -132,56 +143,57 @@ const resolveWhitePaperURL = paperUrl => {
     return paperUrl;
 };
 
-const total = 2735;
-let count = 0;
 
 const whitePaperDrop = () => dataModel
-    .find({"whitePaperAddr":{$ne:null}})
+    .find({"whitePaperAddr": {$ne: null}, "whitePaperSave": {$exists: false}})
     .select({
         "whitePaperAddr": true,
         "targetUrl": true,
         "_id": false
     })
-    .then(results => Promise.map(results, ({targetUrl, whitePaperAddr}) => {
+    .then(results => {
+        total = results.length;
+        return Promise.map(results, ({targetUrl, whitePaperAddr}) => {
 
-            const paperUrl = resolveWhitePaperURL(whitePaperAddr);
-            const name = targetUrl.substring(targetUrl.lastIndexOf("/") + 1);
-            let ext = path.extname(paperUrl);
-            count++;
-            return download(paperUrl)
-                .then(data => {
-                    const type = fileType(data);
-                    ext = type && type.ext ? `.${type.ext}` : ext;
-                    return writeFile(path.resolve(`${root}/data/whitepaper/${name}${ext}`), data);
+                const paperUrl = resolveWhitePaperURL(whitePaperAddr);
+                const name = targetUrl.substring(targetUrl.lastIndexOf("/") + 1);
+                let ext = path.extname(paperUrl);
+                count++;
+                return download(paperUrl)
+                    .then(data => {
+                        const type = fileType(data);
+                        ext = type && type.ext ? `.${type.ext}` : ext;
+                        return writeFile(path.resolve(`${root}/data/whitepaper/${name}${ext}`), data);
 
-                })
-                .then(() => {
-                        console.log(`${whitePaperAddr} is saved! ${count}/${total}`);
-                        let errlog = null;
-                        if (ext === "") errlog = `[No Extension] not a proper file`;
-                        const whitePaperSave = {'save': true, 'error': errlog};
+                    })
+                    .then(() => {
+                            console.log(`${whitePaperAddr} is saved! ${count}/${total}`);
+                            let errlog = null;
+                            if (ext === "") errlog = `[No Extension] not a proper file`;
+                            const whitePaperSave = {'save': true, 'error': errlog};
+                            dataModel.findOneAndUpdate({"targetUrl": targetUrl},
+                                {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
+                                    if (err) throw console.log(`[err : update data with whitepaper save]${err}`);
+                                })
+                        }
+                    )
+                    .catch(err => {
+                        const whitePaperSave = {'save': false, 'error': err};
                         dataModel.findOneAndUpdate({"targetUrl": targetUrl},
                             {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
                                 if (err) throw console.log(`[err : update data with whitepaper save]${err}`);
                             })
-                    }
-                )
-                .catch(err => {
-                    const whitePaperSave = {'save': false, 'error': err};
-                    dataModel.findOneAndUpdate({"targetUrl": targetUrl},
-                        {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
-                            if (err) throw console.log(`[err : update data with whitepaper save]${err}`);
-                        })
-                });
+                    });
 
-        },
-        {
-            concurrency: 1
-        }
-    ));
+            },
+            {
+                concurrency: 1
+            }
+        )
+    });
 
-
-whitePaperDrop().then(() => {
-    console.log("all white paper saving done");
-    mongoose.disconnect();
-});
+//
+// whitePaperDrop().then(() => {
+//     console.log("all white paper saving done");
+//     mongoose.disconnect();
+// });
