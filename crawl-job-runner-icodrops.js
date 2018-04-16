@@ -136,7 +136,7 @@ function crawlAllDataWithUndoneLinks() {
 
 //crawlAllDataWithUndoneLinks();
 
-//crawlData("https://icodrops.com/friendz/").then(result => console.log(result));
+//crawlData("﻿https://icodrops.com/pre/apex/").then(result => console.log(result));
 
 const resolveWhitePaperURL = paperUrl => {
     const myUrl = new URL(paperUrl);
@@ -155,7 +155,8 @@ const resolveWhitePaperURL = paperUrl => {
 
 
 const whitePaperDrop = () => dataModel
-    .find({"whitePaperAddr": {$ne: null}, "whitePaperSave": {$exists: false}})
+   // .find({"whitePaperAddr": {$ne: null}, "whitePaperSave": {$exists: false}})
+    .find({"whitePaperAddr": {$ne: null}})
     .select({
         "whitePaperAddr": true,
         "targetUrl": true,
@@ -166,20 +167,21 @@ const whitePaperDrop = () => dataModel
         return Promise.map(results, ({targetUrl, whitePaperAddr}) => {
 
                 const paperUrl = resolveWhitePaperURL(whitePaperAddr);
-                const name = targetUrl.substring(targetUrl.lastIndexOf("/") + 1);
+                const urlSplit = targetUrl.split('/');
+                const name = urlSplit[urlSplit.length-2];
                 let ext = path.extname(paperUrl);
                 count++;
                 return download(paperUrl)
                     .then(data => {
                         const type = fileType(data);
                         ext = type && type.ext ? `.${type.ext}` : ext;
-                        return writeFile(path.resolve(`${root}/data/whitepaper/${name}${ext}`), data);
+                        return writeFile(path.resolve(`${root}/data/icodrops/${name}${ext}`), data);
 
                     })
                     .then(() => {
                             console.log(`${whitePaperAddr} is saved! ${count}/${total}`);
                             let errlog = null;
-                            if (ext === "") errlog = `[No Extension] not a proper file`;
+                            if (ext !== ".pdf") errlog = `[No Extension] not a proper file`;
                             const whitePaperSave = {'save': true, 'error': errlog};
                             dataModel.findOneAndUpdate({"targetUrl": targetUrl},
                                 {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
@@ -202,8 +204,9 @@ const whitePaperDrop = () => dataModel
         )
     });
 
-//
-// whitePaperDrop().then(() => {
-//     console.log("all white paper saving done");
-//     mongoose.disconnect();
-// });
+
+whitePaperDrop().then(() => {
+    console.log("all white paper saving done");
+    mongoose.disconnect();
+});
+
