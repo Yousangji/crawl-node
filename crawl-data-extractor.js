@@ -150,8 +150,8 @@ const crawlData = targetUrl => axios
         const hasTime = $('.financial_data > .row > div').children('label').text();
         if(hasTime === "Time") {
             const icoPeriod = $('.financial_data > .row > div').children('small').text().split(' - ');
-            const icoStart = icoPeriod[0] === '' ? null : new Date(icoPeriod[0]);
-            const icoEnd = icoPeriod[1] === '' ? null : new Date(icoPeriod[1]);
+            const icoStart = icoPeriod[0] === '' ? null : icoPeriod[0];
+            const icoEnd = icoPeriod[1] === '' ? null : icoPeriod[1];
             icoInfo["icoStart"] = icoStart;
             icoInfo["icoEnd"] = icoEnd;
         }

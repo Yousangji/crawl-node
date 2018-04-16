@@ -7,8 +7,7 @@ const download = require('download');
 const writeFile = Promise.promisify(fs.writeFile);
 const root = __dirname;
 const fileType = require('file-type');
-const axios = require('axios');
-const {crawlLinks, crawlData} = require("./crawl-data-extractor");
+const {crawlLinks, crawlData} = require("./crawl-data-extractor-icodrops");
 
 //---------database
 const mongoose = require('mongoose');
@@ -17,7 +16,6 @@ const Schema = mongoose.Schema;
 const link = new Schema({
     targetUrl: String,
     baseUrl: String,
-    duedate: Date,
     trial: {type: Number, default: 0},
     done: {type: Boolean, default: false},
     error: {type: String, default: null}
@@ -26,58 +24,61 @@ const link = new Schema({
 });
 const data = new Schema({
     teamName: String,
-    detailInfo: Schema.Types.Mixed,//new has subtitle, subscribe, tag
-    aggregateRatings: Schema.Types.Mixed, //new aggregateRatings{sum,detail}
+    detailInfo: Schema.Types.Mixed,
     whitePaperAddr: String,
-    financialInfo: Schema.Types.Mixed,
     icoInfo: Schema.Types.Mixed,
     socialLinks: Schema.Types.Mixed,
-    teamMembersInfo: Schema.Types.Mixed,
-    ratings: Schema.Types.Mixed,// new has rated person name,
-    milestone: Schema.Types.Mixed,// new has date content
+    rating: Schema.Types.Mixed,
+    marketReturns : Schema.Types.Mixed,
+    reviewInfo:Schema.Types.Mixed,
+    additionalLinks : Schema.Types.Mixed,
     targetUrl: String,
     whitePaperSave: Schema.Types.Mixed
 }, {timestamps: true});
-const linkModel = mongoose.model('link', link);
-const dataModel = mongoose.model('ico-metadata', data);
 
 
-let total = 2735;
+const linkModel = mongoose.model('icodrops-link', link);
+const dataModel = mongoose.model('icodrops-metadata', data);
+
+
+let total;
 let count = 0;
 
 /*
 request every chart page and get all links return as a array
  */
 const crawlAllLinks = () => {
-    const total = 228;
-    const counter = [...new Array(total).keys()]; // array from 0 to 254
-    return Promise.map(counter, i => crawlLinks(`https://icobench.com/icos?page=${i + 1}`, "/ico/"), {concurrency: 1})
+
+    const categories = ["ended-ico","upcoming-ico","active-ico"];
+    return Promise.map(categories, category => crawlLinks(`https://icodrops.com/category/${category}`, "https://icodrops.com/"), {concurrency: 1})
         .then(result => {
+            console.log("[notify] crawlLinks ended");
             // same as  union.apply(null,result); same as union(result[0],result[1],...)
             return union(...result);
         });
 };
 
-
 //pass links array and write db
 const saveCrawledLinks = () => crawlAllLinks()
     .then(links => {
+        total = links.length;
         //-------------save link in DB
-        Promise.map(links, link => {
-            linkModel.findOneAndUpdate({"targetUrl": `https://icobench.com${link}`}, {
+         return Promise.map(links, link => {
+            linkModel.findOneAndUpdate({"targetUrl": link }, {
                 $set: {
-                    "targetUrl": `https://icobench.com${link}`,
-                    baseUrl: `https://icobench.com`,
+                    "targetUrl": link,
+                    baseUrl: `https://icodrops.com`,
                 }
             }, {upsert: true, setDefaultsOnInsert: true, new: true}, function (err, doc) {
-                if (err) console.log("mongo error : error while upserting new links");
-                //console.log(`link : ${link } / db save done `)
-            })
-        })
+                if (err) {console.log("mongo error : error while upserting new links")}
+                count++;
+                console.log(`link : ${link} / db save done ${count}/${total}`)
+            });
+         },{concurrency:1})
     })
     .then(() => {
         console.log("done");
-        // mongoose.connection.close()
+        //mongoose.connection.close()
     });
 
 
@@ -85,10 +86,11 @@ const saveCrawledLinks = () => crawlAllLinks()
  * request with links , crawl data, save data in mongo then, if succeed update link done = true if not update link error.log
  * @param links
  */
-const crawlAllData = links => {
+const crawlAllData = (links) => {
     total = links.length;
     return Promise.each(links, link => crawlData(link)
         .then(data => {
+
             count++;
             console.log(`${link} is started! ${count}/${total}`);
             //------------------------ save crawled Data
@@ -120,14 +122,21 @@ const crawlAllData = links => {
 };
 
 //get links undone from database and then crawl all data
-const crawlAllDataWithUndoneLinks = () => linkModel
-    .find({ratings:{$exists:false}})
-    .select({"targetUrl": 1, "_id": 0})
-    .then(results => results.map(result => result['targetUrl']))
-    .then(targetUrls => crawlAllData(targetUrls))
-    .then(() => {console.log("done"); mongoose.disconnect()});
+function crawlAllDataWithUndoneLinks() {
+    return linkModel
+        .find({})
+        .select({"targetUrl": 1, "_id": 0})
+        .then(results => results.map(result => result['targetUrl']))
+        .then(targetUrls => crawlAllData(targetUrls))
+        .then(() => {
+            console.log("done");
+            mongoose.disconnect()
+        });
+}
 
+//crawlAllDataWithUndoneLinks();
 
+//crawlData("https://icodrops.com/friendz/").then(result => console.log(result));
 
 const resolveWhitePaperURL = paperUrl => {
     const myUrl = new URL(paperUrl);
@@ -142,6 +151,7 @@ const resolveWhitePaperURL = paperUrl => {
     }
     return paperUrl;
 };
+
 
 
 const whitePaperDrop = () => dataModel
