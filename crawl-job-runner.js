@@ -7,24 +7,24 @@ const download = require('download');
 const writeFile = Promise.promisify(fs.writeFile);
 const root = __dirname;
 const fileType = require('file-type');
-const axios = require('axios');
-const {crawlLinks, crawlData} = require("./crawl-data-extractor");
+const {crawlLinks, crawlData} = require("./crawl-data-crawler");
 
 //---------database
 const mongoose = require('mongoose');
-mongoose.connect('mongodb://10.10.122.49:27017/ico-crawler');
+mongoose.connect('mongodb://127.0.0.1:27017/icoscrap');
 const Schema = mongoose.Schema;
-const link = new Schema({
+
+//db Schema model
+const icobenchLink = new Schema({
     targetUrl: String,
     baseUrl: String,
-    duedate: Date,
     trial: {type: Number, default: 0},
     done: {type: Boolean, default: false},
     error: {type: String, default: null}
 }, {
     timestamps: true
 });
-const data = new Schema({
+const icobenchData = new Schema({
     teamName: String,
     detailInfo: Schema.Types.Mixed,
     aggregateRatings: Schema.Types.Mixed,
@@ -38,59 +38,114 @@ const data = new Schema({
     targetUrl: String,
     whitePaperSave: Schema.Types.Mixed
 }, {timestamps: true});
-const linkModel = mongoose.model('link', link);
-const dataModel = mongoose.model('ico-metadata', data);
+
+const icodropsLink = new Schema({
+    teamName: String,
+    detailInfo: Schema.Types.Mixed,
+    aggregateRatings: Schema.Types.Mixed,
+    whitePaperAddr: String,
+    financialInfo: Schema.Types.Mixed,
+    icoInfo: Schema.Types.Mixed,
+    socialLinks: Schema.Types.Mixed,
+    teamMembersInfo: Schema.Types.Mixed,
+    ratings: Schema.Types.Mixed,
+    milestone: Schema.Types.Mixed,
+    targetUrl: String,
+    whitePaperSave: Schema.Types.Mixed
+}, {timestamps: true});
+
+const icodropsData = new Schema({
+    teamName: String,
+    detailInfo: Schema.Types.Mixed,
+    whitePaperAddr: String,
+    icoInfo: Schema.Types.Mixed,
+    socialLinks: Schema.Types.Mixed,
+    rating: Schema.Types.Mixed,
+    marketReturns: Schema.Types.Mixed,
+    reviewInfo: Schema.Types.Mixed,
+    additionalLinks: Schema.Types.Mixed,
+    targetUrl: String,
+    whitePaperSave: Schema.Types.Mixed
+}, {timestamps: true});
+
+const link = icobenchLink;
+const data = icobenchData;
+const linkModel = mongoose.model('link-icodrops', link);
+const dataModel = mongoose.model('metadata-icodrops', data);
 
 
-let total = 2735;
-let count = 0;
+const icodropsConfig = {
+    "nodeArr": ["ended-ico", "upcoming-ico", "active-ico"],
+    "baseUrl": "https://icodrops.com/category/",
+    "startWith": "https://icodrops.com/",
+    "limitArea": "#content"
+};
 
-/*
-request every chart page and get all links return as a array
+const icobenchConfig = {
+    "nodeArr": [...new Array(228).keys() + 1], // array from 0 to 254
+    "baseUrl": "https://icobench.com/icos?page=",
+    "startWith": "/ico/",
+    "limitArea": "#page"
+};
+
+
+/**
+ *  crawl All links
+ * @param baseUrl  : base url
+ * @param nodeArr : chart paging node ex. [1,2,3] ,[ended-ico,upcoming-ico,active-ico]
+ * @param startWith : crawl url only start with this
+ * @param limitArea : limit crawl area as selector
+ * @returns {*} all links should be crawled
  */
-const crawlAllLinks = () => {
-    const total = 228;
-    const counter = [...new Array(total).keys()]; // array from 0 to 254
-    return Promise.map(counter, i => crawlLinks(`https://icobench.com/icos?page=${i + 1}`, "/ico/"), {concurrency: 1})
+const crawlAllLinks = ({baseUrl, nodeArr, startWith, limitArea}) => {
+    return Promise.map(nodeArr, node => crawlLinks(`${baseUrl}${node}`, startWith, limitArea), {concurrency: 1})
         .then(result => {
+            console.log("[notify] crawlLinks ended");
             // same as  union.apply(null,result); same as union(result[0],result[1],...)
             return union(...result);
         });
 };
 
 
-//pass links array and write db
-const saveCrawledLinks = () => crawlAllLinks()
-    .then(links => {
-        //-------------save link in DB
-        Promise.map(links, link => {
-            linkModel.findOneAndUpdate({"targetUrl": `https://icobench.com${link}`}, {
-                $set: {
-                    "targetUrl": `https://icobench.com${link}`,
-                    baseUrl: `https://icobench.com`,
-                }
-            }, {upsert: true, setDefaultsOnInsert: true, new: true}, function (err, doc) {
-                if (err) console.log("mongo error : error while upserting new links");
-                //console.log(`link : ${link } / db save done `)
-            })
+/**
+ * save all link data in db
+ * @param baseUrl
+ * @param links
+ */
+const saveCrawledLinks = links => {
+    //-------------save link in DB
+    Promise.map(links, link => {
+        linkModel.findOneAndUpdate({"targetUrl": link}, {
+            $set: {"targetUrl": link}
+        }, {upsert: true, setDefaultsOnInsert: true, new: true}, function (err, doc) {
+            if (err) {
+                console.log("mongo error : error while upserting new links")
+            }
+            ;
+            //console.log(`link : ${link } / db save done `)
         })
     })
-    .then(() => {
-        console.log("done");
-        // mongoose.connection.close()
-    });
+};
 
 
 /**
- * request with links , crawl data, save data in mongo then, if succeed update link done = true if not update link error.log
+
  * @param links
  */
-const crawlAllData = links => {
-    total = links.length;
+
+/**
+ * crawl data from given Links, save data in mongo then,
+ * update link data if succeeded or not
+ * @param links to be crawled data
+ * @returns {null|void|*}
+ */
+const crawlAndSaveAllData = links => {
+    const total = links.length;
     return Promise.each(links, link => crawlData(link)
         .then(data => {
             count++;
             console.log(`${link} is started! ${count}/${total}`);
+
             //------------------------ save crawled Data
             dataModel.findOneAndUpdate({"targetUrl": link},
                 data, {upsert: true})
@@ -108,26 +163,22 @@ const crawlAllData = links => {
         }).catch(error => {
             console.log(`[error: ${error}]  while crawling data, link : ${link}`);
 
-            //--------------------update link data(trial, updated, error) in db,  if crawling data failed
+            //--------------------update link data(trial, error) in db,  if crawling data failed
             linkModel.findOneAndUpdate({"url": link}, {
                 $set: {"error": error},
                 $inc: {"trial": 1}
             }, function (err, res) {
                 if (err) throw console.log(`[error : ${err}] update crawling failed link `);
-                console.log(`update crawling failed link result : ${res}`)
             })
         }), {concurrency: 1})
 };
 
-//get links undone from database and then crawl all data
-const crawlAllDataWithUndoneLinks = () => linkModel
-    .find({})
-    .select({"targetUrl": 1, "_id": 0})
-    .then(results => results.map(result => result['targetUrl']))
-    .then(targetUrls => crawlAllData(targetUrls))
-    .then(() => {console.log("done"); mongoose.disconnect()});
 
-
+/**
+ * resolve whitepaper url to downloadable url
+ * @param paperUrl saved url in db
+ * @returns {*} downloadable url
+ */
 const resolveWhitePaperURL = paperUrl => {
     const myUrl = new URL(paperUrl);
     if (myUrl.host === "drive.google.com") {
@@ -142,57 +193,83 @@ const resolveWhitePaperURL = paperUrl => {
     return paperUrl;
 };
 
+/**
+ * request with given whitepaperAddr urls , download, writefile
+ * @param results
+ * @returns {*}
+ */
+const whitePaperDrop = (results) => {
+    const total = results.length;
+    return Promise.map(results, ({targetUrl, whitePaperAddr}) => {
 
-const whitePaperDrop = () => dataModel
-    .find({"whitePaperAddr": {$ne: null}, "whitePaperSave": {$exists: false}})
-    .select({
-        "whitePaperAddr": true,
-        "targetUrl": true,
-        "_id": false
-    })
-    .then(results => {
-        total = results.length;
-        return Promise.map(results, ({targetUrl, whitePaperAddr}) => {
+            const paperUrl = resolveWhitePaperURL(whitePaperAddr);
+            const name = targetUrl.substring(targetUrl.lastIndexOf("/") + 1);
+            let ext = path.extname(paperUrl);
+            count++;
+            return download(paperUrl)
+                .then(data => {
+                    const type = fileType(data);
+                    ext = type && type.ext ? `.${type.ext}` : ext;
+                    return writeFile(path.resolve(`${root}/data/whitepaper/${name}${ext}`), data);
 
-                const paperUrl = resolveWhitePaperURL(whitePaperAddr);
-                const name = targetUrl.substring(targetUrl.lastIndexOf("/") + 1);
-                let ext = path.extname(paperUrl);
-                count++;
-                return download(paperUrl)
-                    .then(data => {
-                        const type = fileType(data);
-                        ext = type && type.ext ? `.${type.ext}` : ext;
-                        return writeFile(path.resolve(`${root}/data/whitepaper/${name}${ext}`), data);
-
-                    })
-                    .then(() => {
-                            console.log(`${whitePaperAddr} is saved! ${count}/${total}`);
-                            let errlog = null;
-                            if (ext === "") errlog = `[No Extension] not a proper file`;
-                            const whitePaperSave = {'save': true, 'error': errlog};
-                            dataModel.findOneAndUpdate({"targetUrl": targetUrl},
-                                {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
-                                    if (err) throw console.log(`[err : update data with whitepaper save]${err}`);
-                                })
-                        }
-                    )
-                    .catch(err => {
-                        const whitePaperSave = {'save': false, 'error': err};
+                })
+                .then(() => {
+                        console.log(`${whitePaperAddr} is saved! ${count}/${total}`);
+                        let errlog = null;
+                        if (ext === "") errlog = `[No Extension] not a proper file`;
+                        const whitePaperSave = {'save': true, 'error': errlog};
                         dataModel.findOneAndUpdate({"targetUrl": targetUrl},
                             {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
                                 if (err) throw console.log(`[err : update data with whitepaper save]${err}`);
                             })
-                    });
+                    }
+                )
+                .catch(err => {
+                    const whitePaperSave = {'save': false, 'error': err};
+                    dataModel.findOneAndUpdate({"targetUrl": targetUrl},
+                        {$set: {"whitePaperSave": whitePaperSave}}, {upsert: true}, function (err, doc) {
+                            if (err) throw console.log(`[err : update data with whitepaper save]${err}`);
+                        })
+                });
 
-            },
-            {
-                concurrency: 1
-            }
-        )
-    });
+        },
+        {
+            concurrency: 1
+        }
+    )
+};
+
+
+
+//crawlAllLinks -> saveCrawledLinks
+// crawlAllLinks(icodropsConfig)
+//     .then(links => saveCrawledLinks(links))
+//     .then(()=>console.log("done"));
+
+
+// //get links undone from database and then crawl all data
+// linkModel
+//     .find({})
+//     .select({"targetUrl": 1, "_id": 0})
+//     .then(results => results.map(result => result['targetUrl']))
+//     .then(targetUrls => crawlAndSaveAllData(targetUrls))
+//     .then(() => {
+//         console.log("done");
+//         mongoose.disconnect()
+//     });
+
 
 //
-// whitePaperDrop().then(() => {
-//     console.log("all white paper saving done");
-//     mongoose.disconnect();
-// });
+// dataModel
+//     .find({"whitePaperAddr": {$ne: null}, "whitePaperSave": {$exists: false}})
+//     .select({
+//         "whitePaperAddr": true,
+//         "targetUrl": true,
+//         "_id": false
+//     })
+//     .then(results => whitePaperDrop(results))
+//     .then(() => {
+//         console.log("all white paper saving done");
+//         mongoose.disconnect();
+//     });
+
